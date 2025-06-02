@@ -3,6 +3,7 @@
 .stamps/
 build.ninja
 yocto/
+agl-ivi/
 android/
 android_kernel/
 firmware/
@@ -10,3 +11,4 @@ repo
 *.img
 *.img.gz
 *.img.bmap
+site.conf
