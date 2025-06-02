@@ -1,0 +1,249 @@
+From a2451ffac98fbbaa5a44f4a81359cf9db7581b29 Mon Sep 17 00:00:00 2001
+From: Sergio Lopez <slp@redhat.com>
+Date: Fri, 26 May 2023 13:29:21 +0200
+Subject: [PATCH 2/6] ui: add the infrastructure to support MT events
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Add the required infrastructure to support generating multitouch events.
+
+Signed-off-by: Sergio Lopez <slp@redhat.com>
+Reviewed-by: Marc-André Lureau <marcandre.lureau@redhat.com>
+Reviewed-by: Markus Armbruster <armbru@redhat.com>
+---
+ include/ui/input.h    |  3 ++
+ qapi/ui.json          | 68 +++++++++++++++++++++++++++++++++++++------
+ replay/replay-input.c | 18 ++++++++++++
+ ui/input.c            |  6 ++++
+ ui/trace-events       |  1 +
+ 5 files changed, 87 insertions(+), 9 deletions(-)
+
+diff --git a/include/ui/input.h b/include/ui/input.h
+index c86219a1c1..2a3dffd417 100644
+--- a/include/ui/input.h
++++ b/include/ui/input.h
+@@ -8,9 +8,12 @@
+ #define INPUT_EVENT_MASK_BTN   (1<<INPUT_EVENT_KIND_BTN)
+ #define INPUT_EVENT_MASK_REL   (1<<INPUT_EVENT_KIND_REL)
+ #define INPUT_EVENT_MASK_ABS   (1<<INPUT_EVENT_KIND_ABS)
++#define INPUT_EVENT_MASK_MTT   (1<<INPUT_EVENT_KIND_MTT)
+ 
+ #define INPUT_EVENT_ABS_MIN    0x0000
+ #define INPUT_EVENT_ABS_MAX    0x7FFF
++#define INPUT_EVENT_SLOTS_MIN  0x0
++#define INPUT_EVENT_SLOTS_MAX  0xa
+ 
+ typedef struct QemuInputHandler QemuInputHandler;
+ typedef struct QemuInputHandlerState QemuInputHandlerState;
+diff --git a/qapi/ui.json b/qapi/ui.json
+index 13a8bb82aa..adff5fe08b 100644
+--- a/qapi/ui.json
++++ b/qapi/ui.json
+@@ -988,11 +988,13 @@
+ #
+ # @extra: rear side button of a 5-button mouse (since 2.9)
+ #
++# @touch: screen contact on a multi-touch device (since 7.0)
++#
+ # Since: 2.0
+ ##
+ { 'enum'  : 'InputButton',
+   'data'  : [ 'left', 'middle', 'right', 'wheel-up', 'wheel-down', 'side',
+-  'extra', 'wheel-left', 'wheel-right' ] }
++  'extra', 'wheel-left', 'wheel-right', 'touch' ] }
+ 
+ ##
+ # @InputAxis:
+@@ -1004,6 +1006,17 @@
+ { 'enum'  : 'InputAxis',
+   'data'  : [ 'x', 'y' ] }
+ 
++##
++# @InputMultiTouchType:
++#
++# Type of a multi-touch event.
++#
++# Since: 7.0
++##
++{ 'enum'  : 'InputMultiTouchType',
++  'data'  : [ 'begin', 'update', 'end', 'cancel', 'data' ] }
++
++
+ ##
+ # @InputKeyEvent:
+ #
+@@ -1047,13 +1060,46 @@
+   'data'  : { 'axis'    : 'InputAxis',
+               'value'   : 'int' } }
+ 
++##
++# @InputMultiTouchEvent:
++#
++# MultiTouch input event.
++#
++# @slot: Which slot has generated the event.
++#
++# @tracking-id: ID to correlate this event with previously generated
++#               events.
++#
++# @axis: Which axis is referenced by @value.
++#
++# @value: Contact position.
++#
++# Since: 7.0
++##
++{ 'struct'  : 'InputMultiTouchEvent',
++  'data'  : { 'type'       : 'InputMultiTouchType',
++              'slot'       : 'int',
++              'tracking-id': 'int',
++              'axis'       : 'InputAxis',
++              'value'      : 'int' } }
++
+ ##
+ # @InputEventKind:
+ #
++# @key: a keyboard input event
++#
++# @btn: a pointer button input event
++#
++# @rel: a relative pointer motion input event
++#
++# @abs: an absolute pointer motion input event
++#
++# @mtt: a multi-touch input event
++#
+ # Since: 2.0
+ ##
+ { 'enum': 'InputEventKind',
+-  'data': [ 'key', 'btn', 'rel', 'abs' ] }
++  'data': [ 'key', 'btn', 'rel', 'abs', 'mtt' ] }
+ 
+ ##
+ # @InputKeyEventWrapper:
+@@ -1079,17 +1125,20 @@
+ { 'struct': 'InputMoveEventWrapper',
+   'data': { 'data': 'InputMoveEvent' } }
+ 
++##
++# @InputMultiTouchEventWrapper:
++#
++# Since: 7.0
++##
++{ 'struct': 'InputMultiTouchEventWrapper',
++  'data': { 'data': 'InputMultiTouchEvent' } }
++
+ ##
+ # @InputEvent:
+ #
+ # Input event union.
+ #
+-# @type: the input type, one of:
+-#
+-#        - 'key': Input event of Keyboard
+-#        - 'btn': Input event of pointer buttons
+-#        - 'rel': Input event of relative pointer motion
+-#        - 'abs': Input event of absolute pointer motion
++# @type: the type of input event
+ #
+ # Since: 2.0
+ ##
+@@ -1099,7 +1148,8 @@
+   'data'  : { 'key'     : 'InputKeyEventWrapper',
+               'btn'     : 'InputBtnEventWrapper',
+               'rel'     : 'InputMoveEventWrapper',
+-              'abs'     : 'InputMoveEventWrapper' } }
++              'abs'     : 'InputMoveEventWrapper',
++              'mtt'     : 'InputMultiTouchEventWrapper' } }
+ 
+ ##
+ # @input-send-event:
+diff --git a/replay/replay-input.c b/replay/replay-input.c
+index 1147e3d34e..bee3dbe528 100644
+--- a/replay/replay-input.c
++++ b/replay/replay-input.c
+@@ -22,6 +22,7 @@ void replay_save_input_event(InputEvent *evt)
+     InputKeyEvent *key;
+     InputBtnEvent *btn;
+     InputMoveEvent *move;
++    InputMultiTouchEvent *mtt;
+     replay_put_dword(evt->type);
+ 
+     switch (evt->type) {
+@@ -58,6 +59,14 @@ void replay_save_input_event(InputEvent *evt)
+         replay_put_dword(move->axis);
+         replay_put_qword(move->value);
+         break;
++    case INPUT_EVENT_KIND_MTT:
++        mtt = evt->u.mtt.data;
++        replay_put_dword(mtt->type);
++        replay_put_qword(mtt->slot);
++        replay_put_qword(mtt->tracking_id);
++        replay_put_dword(mtt->axis);
++        replay_put_qword(mtt->value);
++        break;
+     case INPUT_EVENT_KIND__MAX:
+         /* keep gcc happy */
+         break;
+@@ -73,6 +82,7 @@ InputEvent *replay_read_input_event(void)
+     InputBtnEvent btn;
+     InputMoveEvent rel;
+     InputMoveEvent abs;
++    InputMultiTouchEvent mtt;
+ 
+     evt.type = replay_get_dword();
+     switch (evt.type) {
+@@ -109,6 +119,14 @@ InputEvent *replay_read_input_event(void)
+         evt.u.abs.data->axis = (InputAxis)replay_get_dword();
+         evt.u.abs.data->value = replay_get_qword();
+         break;
++    case INPUT_EVENT_KIND_MTT:
++        evt.u.mtt.data = &mtt;
++        evt.u.mtt.data->type = (InputMultiTouchType)replay_get_dword();
++        evt.u.mtt.data->slot = replay_get_qword();
++        evt.u.mtt.data->tracking_id = replay_get_qword();
++        evt.u.mtt.data->axis = (InputAxis)replay_get_dword();
++        evt.u.mtt.data->value = replay_get_qword();
++        break;
+     case INPUT_EVENT_KIND__MAX:
+         /* keep gcc happy */
+         break;
+diff --git a/ui/input.c b/ui/input.c
+index 8ac407dec4..94cbac0bea 100644
+--- a/ui/input.c
++++ b/ui/input.c
+@@ -214,6 +214,7 @@ static void qemu_input_event_trace(QemuConsole *src, InputEvent *evt)
+     InputKeyEvent *key;
+     InputBtnEvent *btn;
+     InputMoveEvent *move;
++    InputMultiTouchEvent *mtt;
+ 
+     if (src) {
+         idx = qemu_console_get_index(src);
+@@ -252,6 +253,11 @@ static void qemu_input_event_trace(QemuConsole *src, InputEvent *evt)
+         name = InputAxis_str(move->axis);
+         trace_input_event_abs(idx, name, move->value);
+         break;
++    case INPUT_EVENT_KIND_MTT:
++        mtt = evt->u.mtt.data;
++        name = InputAxis_str(mtt->axis);
++        trace_input_event_mtt(idx, name, mtt->value);
++        break;
+     case INPUT_EVENT_KIND__MAX:
+         /* keep gcc happy */
+         break;
+diff --git a/ui/trace-events b/ui/trace-events
+index f78b5e6606..8c4b193f06 100644
+--- a/ui/trace-events
++++ b/ui/trace-events
+@@ -88,6 +88,7 @@ input_event_key_qcode(int conidx, const char *qcode, bool down) "con %d, key qco
+ input_event_btn(int conidx, const char *btn, bool down) "con %d, button %s, down %d"
+ input_event_rel(int conidx, const char *axis, int value) "con %d, axis %s, value %d"
+ input_event_abs(int conidx, const char *axis, int value) "con %d, axis %s, value 0x%x"
++input_event_mtt(int conidx, const char *axis, int value) "con %d, axis %s, value 0x%x"
+ input_event_sync(void) ""
+ input_mouse_mode(int absolute) "absolute %d"
+ 
+-- 
+2.34.1
+

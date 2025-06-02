@@ -5,6 +5,8 @@ build.ninja
 yocto/
 android/
 android_kernel/
+firmware/
+repo
 *.img
 *.img.gz
 *.img.bmap

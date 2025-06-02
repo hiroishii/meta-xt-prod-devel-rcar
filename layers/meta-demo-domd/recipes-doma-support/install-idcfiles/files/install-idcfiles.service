@@ -1,0 +1,10 @@
+[Unit]
+Description=Install idc files to DomA
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/install-idcfiles.sh
+
+[Install]
+WantedBy=multi-user.target
+

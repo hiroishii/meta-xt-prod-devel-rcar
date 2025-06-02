@@ -1,0 +1,77 @@
+From cdccb7578d873e6694199cb51abc7b72d8d5edf6 Mon Sep 17 00:00:00 2001
+From: Sergio Lopez <slp@redhat.com>
+Date: Fri, 26 May 2023 13:29:23 +0200
+Subject: [PATCH 4/6] virtio-input-pci: add virtio-multitouch-pci
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Add virtio-multitouch-pci, a Multitouch-capable input device, to the
+list of devices that can be provided by virtio-input-pci.
+
+Signed-off-by: Sergio Lopez <slp@redhat.com>
+Reviewed-by: Marc-André Lureau <marcandre.lureau@redhat.com>
+---
+ hw/virtio/virtio-input-pci.c | 25 +++++++++++++++++++++----
+ 1 file changed, 21 insertions(+), 4 deletions(-)
+
+diff --git a/hw/virtio/virtio-input-pci.c b/hw/virtio/virtio-input-pci.c
+index 48e9ff38e2..b3d58e63fe 100644
+--- a/hw/virtio/virtio-input-pci.c
++++ b/hw/virtio/virtio-input-pci.c
+@@ -25,10 +25,11 @@ struct VirtIOInputPCI {
+     VirtIOInput vdev;
+ };
+ 
+-#define TYPE_VIRTIO_INPUT_HID_PCI "virtio-input-hid-pci"
+-#define TYPE_VIRTIO_KEYBOARD_PCI  "virtio-keyboard-pci"
+-#define TYPE_VIRTIO_MOUSE_PCI     "virtio-mouse-pci"
+-#define TYPE_VIRTIO_TABLET_PCI    "virtio-tablet-pci"
++#define TYPE_VIRTIO_INPUT_HID_PCI  "virtio-input-hid-pci"
++#define TYPE_VIRTIO_KEYBOARD_PCI   "virtio-keyboard-pci"
++#define TYPE_VIRTIO_MOUSE_PCI      "virtio-mouse-pci"
++#define TYPE_VIRTIO_TABLET_PCI     "virtio-tablet-pci"
++#define TYPE_VIRTIO_MULTITOUCH_PCI "virtio-multitouch-pci"
+ OBJECT_DECLARE_SIMPLE_TYPE(VirtIOInputHIDPCI, VIRTIO_INPUT_HID_PCI)
+ 
+ struct VirtIOInputHIDPCI {
+@@ -102,6 +103,14 @@ static void virtio_tablet_initfn(Object *obj)
+                                 TYPE_VIRTIO_TABLET);
+ }
+ 
++static void virtio_multitouch_initfn(Object *obj)
++{
++    VirtIOInputHIDPCI *dev = VIRTIO_INPUT_HID_PCI(obj);
++
++    virtio_instance_init_common(obj, &dev->vdev, sizeof(dev->vdev),
++                                TYPE_VIRTIO_MULTITOUCH);
++}
++
+ static const TypeInfo virtio_input_pci_info = {
+     .name          = TYPE_VIRTIO_INPUT_PCI,
+     .parent        = TYPE_VIRTIO_PCI,
+@@ -140,6 +149,13 @@ static const VirtioPCIDeviceTypeInfo virtio_tablet_pci_info = {
+     .instance_init = virtio_tablet_initfn,
+ };
+ 
++static const VirtioPCIDeviceTypeInfo virtio_multitouch_pci_info = {
++    .generic_name  = TYPE_VIRTIO_MULTITOUCH_PCI,
++    .parent        = TYPE_VIRTIO_INPUT_HID_PCI,
++    .instance_size = sizeof(VirtIOInputHIDPCI),
++    .instance_init = virtio_multitouch_initfn,
++};
++
+ static void virtio_pci_input_register(void)
+ {
+     /* Base types: */
+@@ -150,6 +166,7 @@ static void virtio_pci_input_register(void)
+     virtio_pci_types_register(&virtio_keyboard_pci_info);
+     virtio_pci_types_register(&virtio_mouse_pci_info);
+     virtio_pci_types_register(&virtio_tablet_pci_info);
++    virtio_pci_types_register(&virtio_multitouch_pci_info);
+ }
+ 
+ type_init(virtio_pci_input_register)
+-- 
+2.34.1
+

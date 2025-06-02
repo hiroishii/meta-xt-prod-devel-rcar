@@ -50,8 +50,8 @@ common_data:
       rev: "abc6c8bae27293ca2d04c7810006df4bb984cf8f" # master
   # Common configuration options for all yocto-based domains
   conf: &COMMON_CONF
-    - [SSTATE_DIR, "${TOPDIR}/../common_data/sstate"]
-    - [DL_DIR, "${TOPDIR}/../common_data/downloads"]
+    - [SSTATE_DIR, "${TOPDIR}/../../../common_data/sstate"]
+    - [DL_DIR, "${TOPDIR}/../../../common_data/downloads"]
 
     # Skip warning about missing "virtualization" distro feature
     - [SKIP_META_VIRT_SANITY_CHECK, "1"]
@@ -737,3 +737,37 @@ parameters:
               # for Wayland/Weston
               - [DISTRO_FEATURES_NATIVESDK:append, " wayland"]
               - [DISTRO_FEATURES:append, " pam"]
+# parameters:
+  ENABLE_DEMO:
+    desc: "Add demo features"
+    "no":
+      desc: "Nothing to do"
+    "yes":
+      default: true
+      overrides:
+        components:
+          dom0:
+            builder:
+              layers:
+                - "../../layers/meta-demo-dom0"
+        components:
+          domd:
+            sources:
+              - type: git
+                url: git://code.qt.io/yocto/meta-qt6.git
+                rev: 9bd2c2ae4b4fb536975904fe494813408a2282a3
+                # dev branch
+              - type: git
+                url: https://github.com/meta-qt5/meta-qt5.git
+                rev: eb828418264a49b8d00035cb3d7b12fcea3be801
+                # scrathgap branch
+            builder:
+              layers:
+                - "../../layers/meta-demo-domd"
+                - "../meta-qt6"
+              conf:
+                - [IMAGE_INSTALL:append, " cluster-refgui"]
+                - [IMAGE_INSTALL:append, " android-tools install-idcfiles"]
+                - [IMAGE_INSTALL:append, " ydotool"]
+                - [PACKAGECONFIG:append:pn_qtbase, " accessibility"]
+                #- [EXTRA_IMAGE_FEATURES:append ," read-only-rootfs"]
